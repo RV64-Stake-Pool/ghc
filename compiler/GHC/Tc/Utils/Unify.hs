@@ -383,7 +383,7 @@ mkFunTysMsg env herald arg_tys res_ty n_val_args_in_call
              n_fun_args = length all_arg_tys
 
              msg | n_val_args_in_call <= n_fun_args  -- Enough args, in the end
-                 = text "In the result of a function call"
+                 = hang (full_herald <> comma) 2 (text "sorry mate") -- WIP
                  | otherwise
                  = hang (full_herald <> comma)
                       2 (sep [ text "but its type" <+> quotes (pprType fun_rho)
