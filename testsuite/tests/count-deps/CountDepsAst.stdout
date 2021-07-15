@@ -88,6 +88,7 @@ GHC.Driver.Config.Diagnostic
 GHC.Driver.Config.Finder
 GHC.Driver.Config.Logger
 GHC.Driver.Env
+GHC.Driver.Env.KnotVars
 GHC.Driver.Env.Types
 GHC.Driver.Errors
 GHC.Driver.Errors.Ppr
