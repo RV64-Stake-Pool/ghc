@@ -10,6 +10,7 @@ module GHC.Unit.Home.ModInfo
    , mapHpt
    , delFromHpt
    , addToHpt
+   , addHomeModInfoToHpt
    , addListToHpt
    , lookupHptDirectly
    , lookupHptByModule
@@ -95,6 +96,9 @@ delFromHpt = delFromUDFM
 
 addToHpt :: HomePackageTable -> ModuleName -> HomeModInfo -> HomePackageTable
 addToHpt = addToUDFM
+
+addHomeModInfoToHpt :: HomeModInfo -> HomePackageTable -> HomePackageTable
+addHomeModInfoToHpt hmi hpt = addToHpt hpt (moduleName (mi_module (hm_iface hmi))) hmi
 
 addListToHpt
   :: HomePackageTable -> [(ModuleName, HomeModInfo)] -> HomePackageTable

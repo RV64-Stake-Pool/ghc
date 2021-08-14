@@ -25,7 +25,7 @@ module GHC.Data.Graph.Directed (
 
         -- Simple way to classify edges
         EdgeType(..), classifyEdges
-    ) where
+    ,outgoingG) where
 
 ------------------------------------------------------------------------------
 -- A version of the graph algorithms described in:
@@ -361,6 +361,11 @@ reachableG :: Graph node -> node -> [node]
 reachableG graph from = map (gr_vertex_to_node graph) result
   where from_vertex = expectJust "reachableG" (gr_node_to_vertex graph from)
         result = {-# SCC "Digraph.reachable" #-} reachable (gr_int_graph graph) [from_vertex]
+
+outgoingG :: Graph node -> node -> [node]
+outgoingG graph from = map (gr_vertex_to_node graph) result
+  where from_vertex = expectJust "reachableG" (gr_node_to_vertex graph from)
+        result = gr_int_graph graph ! from_vertex
 
 -- | Given a list of roots return all reachable nodes.
 reachablesG :: Graph node -> [node] -> [node]

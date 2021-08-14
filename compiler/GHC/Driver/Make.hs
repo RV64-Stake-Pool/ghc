@@ -145,7 +145,6 @@ import qualified Data.Map.Strict as M
 import GHC.Types.TypeEnv
 import Control.Monad.Trans.State.Lazy
 import Control.Monad.Trans.Class
-import qualified Data.Set as S
 import GHC.Driver.Env.KnotVars
 import Control.Concurrent.STM
 import Control.Monad.Trans.Maybe
@@ -557,7 +556,9 @@ load' how_much mHscMessage mod_graph = do
     liftIO $ debugTraceMsg logger 2 (hang (text "Ready for upsweep")
                                     2 (ppr build_plan))
 
-    let transitive_deps = mkTransitiveDepsMap (mgModSummaries' mod_graph)
+--    let transitive_deps = mkTransitiveDepsMap (mgModSummaries' mod_graph)
+    let transitive_deps = mkDepsMap (mgModSummaries' mod_graph)
+
 
     n_jobs <- case parMakeCount dflags of
                     Nothing -> liftIO getNumProcessors
@@ -886,6 +887,7 @@ data BuildLoopState = BuildLoopState { buildDep :: M.Map NodeKey (SDoc, ResultVa
                                           -- the appropiate result of compiling a module  but with
                                           -- cycles there can be additional indirection and can point to the result of typechecking a loop
                                      , nNODE :: Int
+                                     , hpt_var :: MVar HomePackageTable
                                      }
 
 nodeId :: BuildM Int
@@ -916,13 +918,14 @@ type RunMakeM a = ReaderT MakeEnv (MaybeT IO) a
 -- get its direct dependencies from. This might not be the corresponding build action
 -- if the module participates in a loop. This step also labels each node with a number for the output.
 -- See Note [Upsweep] for a high-level description.
-interpretBuildPlan :: M.Map NodeKey [NodeKey]
+interpretBuildPlan :: (NodeKey -> [NodeKey])
                    -> [BuildPlan]
                    -> IO ( Maybe [ModuleGraphNode] -- Is there an unresolved cycle
                          , [MakeAction] -- Actions we need to run in order to build everything
                          , IO [Maybe (Maybe HomeModInfo)]) -- An action to query to get all the built modules at the end.
 interpretBuildPlan deps_map plan = do
-  ((mcycle, plans), build_map) <- runStateT (buildLoop plan) (BuildLoopState M.empty 1)
+  hpt_var <- newMVar emptyHomePackageTable
+  ((mcycle, plans), build_map) <- runStateT (buildLoop plan) (BuildLoopState M.empty 1 hpt_var)
   return (mcycle, plans, collect_results (buildDep build_map))
 
   where
@@ -934,14 +937,18 @@ interpretBuildPlan deps_map plan = do
     buildSingleModule knot_var mod = do
       mod_idx <- nodeId
       home_mod_map <- getBuildMap
+      hpt_var <- gets hpt_var
       -- 1. Get the transitive dependencies of this module, by looking up in the dependency map
-      let trans_deps = expectJust "build_module" $ Map.lookup (mkNodeKey mod) deps_map
+      let trans_deps = deps_map (mkNodeKey mod)
           doc_build_deps = catMaybes $ map (flip M.lookup home_mod_map) trans_deps
           build_deps = map snd doc_build_deps
       -- 2. Set the default way to build this node, not in a loop here
       let default_action = case mod of
-                            InstantiationNode iu -> const Nothing <$> executeInstantiationNode mod_idx n_mods (wait_deps build_deps) iu
-                            ModuleNode ms -> Just <$> executeCompileNode mod_idx n_mods (wait_deps build_deps) knot_var (emsModSummary ms)
+                            InstantiationNode iu -> const Nothing <$> executeInstantiationNode mod_idx n_mods (wait_deps_hpt hpt_var build_deps) iu
+                            ModuleNode ms -> do
+                              hmi <- executeCompileNode mod_idx n_mods (wait_deps_hpt hpt_var build_deps) knot_var (emsModSummary ms)
+                              liftIO $ modifyMVar_ hpt_var (return . addHomeModInfoToHpt hmi)
+                              return (Just hmi)
 
 
       res_var <- liftIO newEmptyMVar
@@ -958,19 +965,23 @@ interpretBuildPlan deps_map plan = do
 
       -- 1. Build all the dependencies in this loop
       (build_modules, wait_modules) <- mapAndUnzipM (buildSingleModule (Just knot_var)) ms
-      let ms_keys = map mkNodeKey ms
+--      let ms_keys = map mkNodeKey ms
       -- 2. Find all transitive dependencies
-      let trans_deps = concat $ expectJust "build_module" $ sequence $ map (flip Map.lookup deps_map ) ms_keys
+--      let trans_deps = concat $ expectJust "build_module" $ sequence $ map (flip Map.lookup deps_map ) ms_keys
       -- 3. Remove loop modules
-          final_deps = S.toList (S.fromList trans_deps `S.difference` S.fromList ms_keys)
-      home_mod_map <- getBuildMap
-      let doc_build_deps = catMaybes $ map (flip M.lookup home_mod_map) final_deps
+  --        final_deps = S.toList (S.fromList trans_deps `S.difference` S.fromList ms_keys)
+--      home_mod_map <- getBuildMap
+     -- let doc_build_deps = catMaybes $ map (flip M.lookup home_mod_map) final_deps
           -- Dependencies the loop depends on, before it can be compiled.
-          build_deps = map snd doc_build_deps
+      --    build_deps = map snd doc_build_deps
 
 
+      hpt_var <- gets hpt_var
       res_var <- liftIO newEmptyMVar
-      let loop_action = executeTypecheckLoop (wait_deps build_deps) (wait_deps wait_modules)
+      let loop_action = do
+            hmis <- executeTypecheckLoop (wait_deps_hpt hpt_var []) (wait_deps wait_modules)
+            liftIO $ modifyMVar_ hpt_var (\hpt -> return $ foldl' (flip addHomeModInfoToHpt) hpt hmis)
+            return hmis
 
 
       let fanout i = Just . (!! i) <$> mkResultVar res_var
@@ -1014,7 +1025,7 @@ parUpsweep
     -> HscEnv
     -> Maybe Messager
     -> HomePackageTable
-    -> M.Map NodeKey [NodeKey]
+    -> (NodeKey -> [NodeKey])
     -> [BuildPlan]
     -> IO (SuccessFlag, HscEnv)
 parUpsweep n_jobs hsc_env _mHscMessage old_hpt transitive_deps build_plan = do
@@ -1023,7 +1034,7 @@ parUpsweep n_jobs hsc_env _mHscMessage old_hpt transitive_deps build_plan = do
     res <- collect_result
 
     let completed = [m | Just (Just m) <- res]
-    let hsc_env' = hscUpdateHPT (const (listHMIToHpt completed)) hsc_env
+    let hsc_env' = addDepsToHscEnv completed hsc_env
 
     -- Handle any cycle in the original compilation graph and return the result
     -- of the upsweep.
@@ -1428,11 +1439,20 @@ mkNodeMap :: [ExtendedModSummary] -> ModNodeMap ExtendedModSummary
 mkNodeMap summaries = ModNodeMap $ Map.fromList
   [ (mkHomeBuildModule0 $ emsModSummary s, s) | s <- summaries]
 
+{-
+
 -- | Efficiently construct a map from a NodeKey to its list of transitive dependencies
 mkTransitiveDepsMap :: [ModuleGraphNode] -> M.Map NodeKey [NodeKey]
 mkTransitiveDepsMap nodes =
   let (mg, _lookup_node) = moduleGraphNodes False nodes
   in allReachable mg (mkNodeKey . node_payload)
+  -}
+
+-- | Efficiently construct a map from a NodeKey to its list of transitive dependencies
+mkDepsMap :: [ModuleGraphNode] -> (NodeKey -> [NodeKey])
+mkDepsMap nodes nk =
+  let (mg, lookup_node) = moduleGraphNodes False nodes
+  in map (mkNodeKey . node_payload) $ outgoingG mg (expectJust "mkDepsMap" (lookup_node nk))
 
 -- | If there are {-# SOURCE #-} imports between strongly connected
 -- components in the topological sort, then those imports can
@@ -2184,6 +2204,10 @@ addDepsToHscEnv ::  [HomeModInfo] -> HscEnv -> HscEnv
 addDepsToHscEnv deps hsc_env =
   hscUpdateHPT (const $ listHMIToHpt deps) hsc_env
 
+setHPT ::  HomePackageTable -> HscEnv -> HscEnv
+setHPT deps hsc_env =
+  hscUpdateHPT (const $ deps) hsc_env
+
 -- | Wrap an action to catch and handle exceptions.
 wrapAction :: HscEnv -> IO a -> IO (Maybe a)
 wrapAction hsc_env k = do
@@ -2226,7 +2250,7 @@ withParLog k cont  = do
 
 executeInstantiationNode :: Int
   -> Int
-  -> RunMakeM [HomeModInfo]
+  -> RunMakeM HomePackageTable
   -> InstantiatedUnit
   -> RunMakeM ()
 executeInstantiationNode k n wait_deps iu = do
@@ -2235,12 +2259,12 @@ executeInstantiationNode k n wait_deps iu = do
         deps <- wait_deps
         -- Output of the logger is mediated by a central worker to
         -- avoid output interleaving
-        let lcl_hsc_env = addDepsToHscEnv deps hsc_env
+        let lcl_hsc_env = setHPT deps hsc_env
         lift $ MaybeT $ wrapAction lcl_hsc_env $ upsweep_inst lcl_hsc_env (Just batchMsg) k n iu
 
 executeCompileNode :: Int
   -> Int
-  -> RunMakeM [HomeModInfo]
+  -> RunMakeM HomePackageTable
   -> Maybe (ModuleEnv (IORef TypeEnv))
   -> ModSummary
   -> RunMakeM HomeModInfo
@@ -2261,25 +2285,31 @@ executeCompileNode k n wait_deps mknot_var mod = do
          lcl_dynflags = ms_hspp_opts mod
      let lcl_hsc_env =
              -- Localise the hsc_env to use the cached flags
-             addDepsToHscEnv deps $
+             setHPT deps $
              hscSetFlags lcl_dynflags $
              hsc_env { hsc_type_env_vars = knotVarsFromModuleEnv knot_var }
      -- Compile the module, locking with a semphore to avoid too many modules
      -- being compiled at the same time leading to high memory usage.
      lift $ MaybeT (wrapAction lcl_hsc_env $ upsweep_mod lcl_hsc_env (Just batchMsg) old_hpt mod k n)
 
-executeTypecheckLoop :: RunMakeM [HomeModInfo] -- Dependencies of the loop
+executeTypecheckLoop :: RunMakeM HomePackageTable -- Dependencies of the loop
   -> RunMakeM [HomeModInfo] -- The loop itself
   -> RunMakeM [HomeModInfo]
 executeTypecheckLoop wait_other_deps wait_local_deps = do
       hsc_env <- asks hsc_env
-      other_deps <- wait_other_deps
       hmis <- wait_local_deps
-      let lcl_hsc_env = addDepsToHscEnv other_deps hsc_env
+      other_deps <- wait_other_deps
+      let lcl_hsc_env = setHPT other_deps hsc_env
       -- Notice that we do **not** have to pass the knot variables into this function.
       -- That's the whole point of typecheckLoop, to replace the IORef calls with normal
       -- knot-tying.
       lift $ MaybeT $ Just . map snd <$> typecheckLoop lcl_hsc_env hmis
+
+wait_deps_hpt :: MVar b -> [ResultVar (Maybe HomeModInfo)] -> ReaderT MakeEnv (MaybeT IO) b
+wait_deps_hpt hpt_var deps = do
+  _ <- wait_deps deps
+  liftIO $ readMVar hpt_var
+
 
 wait_deps :: [ResultVar (Maybe HomeModInfo)] -> RunMakeM [HomeModInfo]
 wait_deps [] = return []
