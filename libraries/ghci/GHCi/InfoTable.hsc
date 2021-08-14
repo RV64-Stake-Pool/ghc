@@ -77,6 +77,7 @@ data Arch = ArchSPARC
           | ArchPPC64
           | ArchPPC64LE
           | ArchS390X
+          | ArchRISCV64
           | ArchUnknown
  deriving Show
 
@@ -102,6 +103,8 @@ platform =
        ArchPPC64LE
 #elif defined(s390x_HOST_ARCH)
        ArchS390X
+#elif defined(riscv64_HOST_ARCH)
+       ArchRISCV64
 #else
 #    if defined(TABLES_NEXT_TO_CODE)
 #        error Unimplemented architecture
@@ -284,6 +287,15 @@ mkJumpToAddr a = case platform of
         in Left [ 0xC0, 0x1E, byte7 w64, byte6 w64, byte5 w64, byte4 w64,
                   0xC0, 0x19, byte3 w64, byte2 w64, byte1 w64, byte0 w64,
                   0x07, 0xF1 ]
+
+    ArchRISCV64 ->
+        let w64 = fromIntegral (funPtrToInt a) :: Word64
+        in Right [ 0x00000297          -- auipc t0,0
+                 , 0x01053283          -- ld    t0,16(t0)
+                 , 0x00028067          -- jr    t0
+                 , 0x00000013          -- nop
+                 , fromIntegral w64
+                 , fromIntegral (w64 `shiftR` 32) ]
 
     -- This code must not be called. You either need to
     -- add your architecture as a distinct case or

@@ -16,6 +16,7 @@ import qualified GHC.Platform.S390X      as S390X
 import qualified GHC.Platform.SPARC      as SPARC
 import qualified GHC.Platform.X86        as X86
 import qualified GHC.Platform.X86_64     as X86_64
+import qualified GHC.Platform.RISCV64    as RISCV64
 import qualified GHC.Platform.NoRegs     as NoRegs
 
 -- | Returns 'True' if this global register is stored in a caller-saves
@@ -32,6 +33,7 @@ callerSaves platform
    ArchSPARC  -> SPARC.callerSaves
    ArchARM {} -> ARM.callerSaves
    ArchARM64  -> ARM64.callerSaves
+   ArchRISCV64 -> RISCV64.callerSaves
    arch
     | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
         PPC.callerSaves
@@ -54,6 +56,7 @@ activeStgRegs platform
    ArchSPARC  -> SPARC.activeStgRegs
    ArchARM {} -> ARM.activeStgRegs
    ArchARM64  -> ARM64.activeStgRegs
+   ArchRISCV64 -> RISCV64.activeStgRegs
    arch
     | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
         PPC.activeStgRegs
@@ -71,6 +74,7 @@ haveRegBase platform
    ArchSPARC  -> SPARC.haveRegBase
    ArchARM {} -> ARM.haveRegBase
    ArchARM64  -> ARM64.haveRegBase
+   ArchRISCV64 -> RISCV64.haveRegBase
    arch
     | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
         PPC.haveRegBase
@@ -88,6 +92,7 @@ globalRegMaybe platform
    ArchSPARC  -> SPARC.globalRegMaybe
    ArchARM {} -> ARM.globalRegMaybe
    ArchARM64  -> ARM64.globalRegMaybe
+   ArchRISCV64 -> RISCV64.globalRegMaybe
    arch
     | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
         PPC.globalRegMaybe
@@ -105,6 +110,7 @@ freeReg platform
    ArchSPARC  -> SPARC.freeReg
    ArchARM {} -> ARM.freeReg
    ArchARM64  -> ARM64.freeReg
+   ArchRISCV64 -> RISCV64.freeReg
    arch
     | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
         PPC.freeReg

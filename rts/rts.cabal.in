@@ -121,6 +121,7 @@ library
        extra-libraries: elf dw
     if flag(libnuma)
        extra-libraries: numa
+    extra-libraries: atomic
     if !flag(smp)
        cpp-options: -DNOSMP
 
@@ -385,7 +386,7 @@ library
 
     if arch(i386) || arch(powerpc) || arch(powerpc64)
        asm-sources: AdjustorAsm.S
-    if arch(powerpc) || arch(powerpc64) || arch(powerpc64le) || arch(s390x)
+    if arch(powerpc) || arch(powerpc64) || arch(powerpc64le) || arch(s390x) || arch(riscv64)
        asm-sources: StgCRunAsm.S
 
     c-sources: Adjustor.c

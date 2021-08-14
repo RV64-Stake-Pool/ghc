@@ -121,7 +121,7 @@ REALGOALS=$(filter-out \
 $(REALGOALS) all: mk/config.mk.old mk/project.mk.old compiler/ghc.cabal.old
 ifneq "$(OMIT_PHASE_0)" "YES"
 	@echo "===--- building phase 0"
-	$(MAKE) --no-print-directory -f ghc.mk phase=0 phase_0_builds
+	$(MAKE) -j4 --no-print-directory -f ghc.mk phase=0 phase_0_builds
 endif
 ifneq "$(OMIT_PHASE_1)" "YES"
 	@echo "===--- building phase 1"

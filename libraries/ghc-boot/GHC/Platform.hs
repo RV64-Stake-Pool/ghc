@@ -118,6 +118,7 @@ data Arch
         | ArchAlpha
         | ArchMipseb
         | ArchMipsel
+        | ArchRISCV64
         | ArchJavaScript
         deriving (Read, Show, Eq)
 
@@ -159,6 +160,7 @@ stringEncodeArch = \case
   ArchAlpha -> "alpha"
   ArchMipseb -> "mipseb"
   ArchMipsel -> "mipsel"
+  ArchRISCV64 -> "riscv64"
   ArchJavaScript -> "js"
 
 isARM :: Arch -> Bool

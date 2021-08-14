@@ -72,6 +72,9 @@ TARGETS=(
     "powerpc64le-unknown-linux"
     # Linux s390x
     "s390x-ibm-linux"
+    # Linux riscv64
+    "riscv64-unknown-linux-gnu"
+    "riscv64-unknown-linux"
 
     #########################
     # Darwin
