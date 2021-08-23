@@ -294,6 +294,7 @@ Library
         GHC.Platform.AArch64
         GHC.Platform.NoRegs
         GHC.Platform.PPC
+        GHC.Platform.RISCV64
         GHC.Platform.S390X
         GHC.Platform.SPARC
         GHC.Platform.X86
